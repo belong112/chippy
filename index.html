@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>晶片微影製程模擬器 - 光罩與微影</title>
+    <title>晶片導線製程模擬器 - 光罩與微影</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -48,7 +48,7 @@
         <p class="text-gray-600">
             並非所有電晶體都需要工作。透過微影製程的圖案設計，我們可以決定哪些要連起來。
             <br>
-            <span class="text-purple-600 font-semibold">本次更新：已將步驟 4 (顯影與蝕刻) 分拆為獨立的「顯影」與「乾蝕刻」兩步驟。</span>
+            <span class="text-purple-600 font-semibold">本次更新：已修正步驟 6 完成後凹槽消失的錯誤。</span>
         </p>
     </header>
 
@@ -93,7 +93,7 @@
                 </div>
             </div>
 
-            <!-- Process Indicators - Updated to 7 steps -->
+            <!-- Process Indicators - Updated to 8 steps -->
             <div class="space-y-2">
                 <div id="step-indicator-1" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
                     <div class="font-bold text-sm text-gray-800">1. 沉積絕緣層 (Deposition)</div>
@@ -101,7 +101,7 @@
                 </div>
                 <div id="step-indicator-2" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
                     <div class="font-bold text-sm text-gray-800">2. 塗布光阻劑 (Photoresist Apply)</div>
-                    <div class="text-xs text-gray-500">旋塗一層光敏材料。</div>
+                    <div class="text-xs text-gray-500">旋塗一層感光材料。</div>
                 </div>
                 <div id="step-indicator-3" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
                     <div class="font-bold text-sm text-gray-800">3. 微影：曝光 (Exposure)</div>
@@ -109,18 +109,22 @@
                 </div>
                 <div id="step-indicator-4" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
                     <div class="font-bold text-sm text-gray-800">4. 顯影 (Develop)</div>
-                    <div class="text-xs text-gray-500">移除被曝光的光阻劑，露出絕緣層表面。</div>
+                    <div class="text-xs text-gray-500">移除被曝光的光阻劑，**未曝光的部分保留**，露出絕緣層表面。</div>
                 </div>
                 <div id="step-indicator-5" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
                     <div class="font-bold text-sm text-gray-800">5. 乾蝕刻 (Dry Etch)</div>
                     <div class="text-xs text-gray-500">電漿蝕刻掉露出的絕緣層，形成通道。</div>
                 </div>
                 <div id="step-indicator-6" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
-                    <div class="font-bold text-sm text-gray-800">6. 電鍍金屬 (Metal Fill)</div>
-                    <div class="text-xs text-gray-500">填入銅，形成導線與多餘的銅層。</div>
+                    <div class="font-bold text-sm text-gray-800">6. 光阻去除 (Photoresist Strip)</div>
+                    <div class="text-xs text-gray-500">徹底移除剩餘的光阻劑保護層。</div>
                 </div>
                 <div id="step-indicator-7" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
-                    <div class="font-bold text-sm text-gray-800">7. 化學機械研磨 (CMP)</div>
+                    <div class="font-bold text-sm text-gray-800">7. 電鍍金屬 (Metal Fill)</div>
+                    <div class="text-xs text-gray-500">填入銅，形成導線與多餘的銅層。</div>
+                </div>
+                <div id="step-indicator-8" class="step-card border-l-4 border-gray-200 bg-white p-3 rounded shadow-sm">
+                    <div class="font-bold text-sm text-gray-800">8. 化學機械研磨 (CMP)</div>
                     <div class="text-xs text-gray-500">磨平表面，線路完成。</div>
                 </div>
             </div>
@@ -141,11 +145,12 @@
             IDLE: 'idle',
             DEPOSITING: 'depositing',
             PR_APPLY: 'pr_apply', 
-            DEVELOPING: 'developing', // Step 3: UV Exposure, PR remains
-            PR_REMOVE: 'pr_remove',   // Step 4: Develop (Photoresist removal) <-- NEW
-            DIELECTRIC_ETCH: 'dielectric_etch', // Step 5: Dry Etch <-- NEW STATE NAME
-            FILLING: 'filling',       // Step 6: Metal Fill
-            POLISHING: 'polishing'    // Step 7: CMP
+            DEVELOPING: 'developing',   // Step 3: UV Exposure, PR remains
+            PR_REMOVE: 'pr_remove',     // Step 4: Develop (Patterning)
+            DIELECTRIC_ETCH: 'dielectric_etch', // Step 5: Dry Etch
+            PR_STRIP: 'pr_strip',       // Step 6: PR Strip 
+            FILLING: 'filling',         // Step 7: Metal Fill
+            POLISHING: 'polishing'      // Step 8: CMP
         };
 
         // Configuration
@@ -171,7 +176,7 @@
             polishProgress: 0
         };
 
-        // Simulation Step Tracker (0 to 7 cyclic)
+        // Simulation Step Tracker (0 to 8 cyclic)
         let processStep = 0; 
         let globalLayerIndex = 0; // Which floor are we on?
 
@@ -282,14 +287,35 @@
             }
         }
         
-        function drawPhotoresist(yPos, opacity) {
+        // Updated drawPhotoresist to handle patterning and stripping
+        function drawPhotoresist(yPos, opacity, patternProgress) {
             const prHeight = config.prHeight;
             const topY = yPos - config.layerHeight; // Top of dielectric
             
+            // 1. Draw the full block of PR first (using the current opacity)
             ctx.fillStyle = `rgba(249, 115, 22, ${opacity})`; // Orange color for PR
             ctx.fillRect(0, topY - prHeight, width, prHeight);
             
-            // Border
+            // 2. Cut out the exposed/developed areas (Patterning)
+            if (patternProgress > 0) {
+                const transistorCount = 3;
+                const spacing = width / (transistorCount + 1);
+                const features = getFeatureGeometry(currentLayer.type, spacing);
+                
+                ctx.save();
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'white'; // Color doesn't matter for destination-out
+                
+                features.forEach(f => {
+                    // Cut out the area where the PR should be removed (exposed area)
+                    // The height of the cutout animates from 0 to full PR height (prHeight)
+                    const cutoutHeight = prHeight * patternProgress;
+                    ctx.fillRect(f.x, topY - cutoutHeight, f.w, cutoutHeight);
+                });
+                ctx.restore();
+            }
+            
+            // 3. Border 
             if (opacity > 0.5) {
                 ctx.strokeStyle = `rgba(234, 88, 12, ${opacity})`;
                 ctx.lineWidth = 1;
@@ -333,6 +359,7 @@
             const features = getFeatureGeometry(type, spacing);
 
             features.forEach(f => {
+                // Ensure the cutout starts from the top of the dielectric layer
                 ctx.fillRect(f.x, yPos - config.layerHeight, f.w, depth);
             });
             
@@ -450,33 +477,60 @@
                     drawDielectric(currentY, currentLayer.dielectricOpacity);
                 }
 
-                // 3.2. Photoresist (Above Dielectric)
-                if (currentLayer.photoresistOpacity > 0) {
-                    drawPhotoresist(currentY, currentLayer.photoresistOpacity);
-                }
-                
-                // 3.3. Lithography Sub-Steps: UV and PR visualization (Step 3)
-                // ONLY draw UV/Mask during the animation of the DEVELOPING state
-                if (currentLayer.state === STATE.DEVELOPING) { 
-                    let topOfPRLayer = currentTop - config.prHeight;
-                    drawPhotomaskAndUV(topOfPRLayer, currentLayer.type);
-                }
-
-                // 3.4. Etching visualization
+                // 3.2. Etching visualization (Cut the hole out of the dielectric)
+                // 必須放在 Dielectric 之後，PR 之前
                 if (currentLayer.etchProgress > 0) {
                     drawEtchedHoles(currentY, currentLayer.etchProgress, currentLayer.type);
                 } 
                 
-                // 3.5. Filling and Polishing Logic (Combined for draw order control)
-                if (currentLayer.fillProgress > 0) {
-                    // Always ensure hole is fully formed before starting fill visually
-                    const metalFillLevel = currentLayer.etchProgress === 1 ? currentLayer.fillProgress : 0; 
-                    
-                    if (metalFillLevel > 0) {
-                        drawMetal(currentY, metalFillLevel, currentLayer.type, false);
+                // 3.3. Photoresist (Above Dielectric) 
+                // 只在 photoresistOpacity > 0 時繪製，避免 destination-out 邏輯在 PR 移除後仍產生副作用
+                if (currentLayer.photoresistOpacity > 0) {
+                    if (currentLayer.state === STATE.PR_APPLY || currentLayer.state === STATE.DEPOSITING) {
+                        drawPhotoresist(currentY, currentLayer.photoresistOpacity, 0); // Full unpatterned PR
+                    } else if (currentLayer.state === STATE.DEVELOPING) {
+                        let topOfPRLayer = currentTop - config.prHeight;
+                        drawPhotomaskAndUV(topOfPRLayer, currentLayer.type); // Draw UV/Mask
+                        drawPhotoresist(currentY, 1, 0); // Full PR, UV exposed (but not yet developed)
+                    } else if (currentLayer.state === STATE.PR_REMOVE) {
+                        // Step 4: Developing (PR removed in exposed area)
+                        drawPhotoresist(currentY, 1, currentLayer.progress); // Animate the patterning/removal
+                    } else if (currentLayer.state === STATE.DIELECTRIC_ETCH) {
+                        drawPhotoresist(currentY, 1, 1); // Fully patterned PR remains for protection
+                    } else if (currentLayer.state === STATE.PR_STRIP) {
+                        // Step 6: PR Strip (remaining PR is removed)
+                        drawPhotoresist(currentY, 1 - currentLayer.progress, 1); // Animate full PR layer disappearance
                     }
-                    
-                    // Draw Overburden & CMP Mechanism
+                }
+
+                // --- 3.4. Metal Filling and Polishing Logic ---
+                let metalFillLevel = 0;
+                
+                // **嚴格防護**：金屬只在步驟 7 (填充) 或 8 (研磨) 時才可能被繪製。
+                const shouldBeMetalProcess = processStep >= 7; 
+                const holeIsReady = currentLayer.etchProgress === 1;
+
+                if (shouldBeMetalProcess) {
+                    // 判斷金屬填充量 (僅在明確的填充或研磨狀態下進行)
+                    if (currentLayer.state === STATE.FILLING) {
+                        metalFillLevel = currentLayer.fillProgress;
+                    } else if (currentLayer.state === STATE.POLISHING) {
+                        metalFillLevel = 1; // Trench is full during polishing
+                    } else if (processStep === 8 || (processStep === 0 && layers.length > 0)) {
+                        // 最終狀態或已完成層，視為滿填
+                        metalFillLevel = 1;
+                    }
+                }
+
+                // 1. Draw Metal Trench Fill
+                // 只有當孔洞挖好 (etchProgress=1) 且金屬填充量 > 0 且在金屬製程步驟 (>=7) 時才繪製。
+                if (holeIsReady && metalFillLevel > 0 && shouldBeMetalProcess) { 
+                    const isPolished = currentLayer.state === STATE.POLISHING && currentLayer.polishProgress === 1;
+                    drawMetal(currentY, metalFillLevel, currentLayer.type, isPolished);
+                }
+                
+                // 2. Draw Overburden & CMP Mechanism (只在金屬已填充時才需考慮)
+                if (shouldBeMetalProcess && metalFillLevel > 0) {
                     if (currentLayer.state === STATE.FILLING) {
                         // Overburden grows during filling phase (from 0.8 to 1.0)
                         if (currentLayer.fillProgress > 0.8) {
@@ -490,8 +544,8 @@
                             drawOverburden(currentY, remainingOverburden);
                             drawCMPMechanism(currentY);
                         }
-                    } else if (currentLayer.fillProgress === 1 && currentLayer.etchProgress === 1) {
-                        // Filling is done, waiting for polish: show full overburden
+                    } else if (currentLayer.fillProgress === 1 && currentLayer.etchProgress === 1 && processStep < 8) {
+                        // Filling is done, waiting for polish: show full overburden (Between step 7 finish and step 8 start)
                         drawOverburden(currentY, 1);
                     }
                 }
@@ -502,8 +556,8 @@
 
         function updateUI() {
             document.querySelectorAll('.step-card').forEach(el => el.classList.remove('active'));
-            // Highlight the indicator corresponding to the *result* of the completed action (processStep 1-7)
-            if (processStep > 0 && processStep <= 7) { 
+            // Highlight the indicator corresponding to the *result* of the completed action (processStep 1-8)
+            if (processStep > 0 && processStep <= 8) { 
                 document.getElementById(`step-indicator-${processStep}`).classList.add('active');
             }
             
@@ -514,10 +568,11 @@
                 1: "【沉積】二氧化矽(玻璃)覆蓋了所有東西。為了讓您看清楚底下的電晶體，這裡將絕緣層顯示為高透明度。",
                 2: "【塗布光阻劑】在絕緣層上旋塗一層感光材料（正型光阻），這是用來定義圖形的關鍵。",
                 3: "【微影：曝光】光罩對準，UV光短暫照射。光阻劑內部圖案已形成，等待顯影液移除(顯影)。請點擊下一步進行顯影。",
-                4: "【顯影】使用顯影液移除被曝光的光阻劑，露出絕緣層表面，作為下一步蝕刻的開口。",
-                5: "【乾蝕刻】使用電漿蝕刻掉露出的絕緣層，形成導線通道。光阻劑保護了未曝光的絕緣層。",
-                6: "【電鍍】銅填滿了我們挖的通道，並在表面形成多餘的銅層 (Overburden)。",
-                7: "【研磨 CMP】磨掉表面多餘的銅。現在你可以清楚看到，電路只存在於左側，右側完全絕緣。"
+                4: "【顯影】使用顯影液移除被曝光的光阻劑，**未曝光的部分將保留**以做為保護罩。此時絕緣層的開口已形成。",
+                5: "【乾蝕刻】使用電漿蝕刻掉露出的絕緣層，形成導線通道。上方的光阻劑保護了未曝光區域。",
+                6: "【光阻去除】使用濕法或乾法徹底移除剩餘的光阻劑，只留下絕緣層上的通道。",
+                7: "【電鍍】銅填滿了我們挖的通道，並在表面形成多餘的銅層 (Overburden)。",
+                8: "【研磨 CMP】磨掉表面多餘的銅。現在你可以清楚看到，電路只存在於左側，右側完全絕緣。"
             };
             
             const btnTexts = {
@@ -526,9 +581,10 @@
                 2: "放置光罩並曝光", // Triggers DEVELOPING (Step 3)
                 3: "顯影光阻劑", // Triggers PR_REMOVE (Step 4)
                 4: "乾蝕刻絕緣層", // Triggers DIELECTRIC_ETCH (Step 5)
-                5: "注入金屬連通", // Triggers FILLING (Step 6)
-                6: "研磨平坦化 (CMP)", // Triggers POLISHING (Step 7)
-                7: "完成此層" // Triggers loop to 0
+                5: "光阻去除 (Strip)", // Triggers PR_STRIP (Step 6)
+                6: "注入金屬連通", // Triggers FILLING (Step 7)
+                7: "研磨平坦化 (CMP)", // Triggers POLISHING (Step 8)
+                8: "完成此層" // Triggers loop to 0
             };
 
             let currentBtnText = btnTexts[processStep] || "下一步";
@@ -537,10 +593,12 @@
             if (document.getElementById('action-btn').disabled) {
                  if (currentLayer.state === STATE.DEVELOPING) {
                      currentBtnText = "曝光中...";
-                 } else if (currentLayer.state === STATE.PR_REMOVE) { // NEW STATE
-                     currentBtnText = "顯影中...";
-                 } else if (currentLayer.state === STATE.DIELECTRIC_ETCH) { // NEW STATE
-                     currentBtnText = "蝕刻中...";
+                 } else if (currentLayer.state === STATE.PR_REMOVE) {
+                     currentBtnText = "顯影中 (光阻劑圖案形成)...";
+                 } else if (currentLayer.state === STATE.DIELECTRIC_ETCH) {
+                     currentBtnText = "絕緣層蝕刻中...";
+                 } else if (currentLayer.state === STATE.PR_STRIP) {
+                     currentBtnText = "移除剩餘光阻劑...";
                  } else if (currentLayer.state === STATE.FILLING) {
                      currentBtnText = "電鍍填充中...";
                  } else if (currentLayer.state === STATE.POLISHING) {
@@ -582,24 +640,27 @@
                 currentLayer.photoresistOpacity = 1; // PR is now fully applied
                 runAnimation(STATE.DEVELOPING);
             } else if (processStep === 3) {
-                // Step 4: PR_REMOVE (Develop) <-- NEW STEP
+                // Step 4: PR_REMOVE (Develop - Patterning)
                 processStep = 4;
                 runAnimation(STATE.PR_REMOVE);
             } else if (processStep === 4) {
-                // Step 5: DIELECTRIC_ETCH (Dry Etch) <-- NEW STEP
+                // Step 5: DIELECTRIC_ETCH (Dry Etch)
                 processStep = 5;
-                currentLayer.photoresistOpacity = 0; // Ensure PR is visually gone before etch starts
                 runAnimation(STATE.DIELECTRIC_ETCH);
             } else if (processStep === 5) {
-                // Step 6: FILLING (Metal Fill)
-                processStep = 6; 
-                currentLayer.etchProgress = 1; // Ensure hole is fully formed before fill
-                runAnimation(STATE.FILLING);
+                // Step 6: PR_STRIP (Photoresist Strip)
+                processStep = 6;
+                currentLayer.etchProgress = 1; // Ensure hole is fully formed before strip
+                runAnimation(STATE.PR_STRIP);
             } else if (processStep === 6) {
-                // Step 7: POLISHING (CMP)
+                // Step 7: FILLING (Metal Fill)
                 processStep = 7; 
-                runAnimation(STATE.POLISHING);
+                runAnimation(STATE.FILLING);
             } else if (processStep === 7) {
+                // Step 8: POLISHING (CMP)
+                processStep = 8; 
+                runAnimation(STATE.POLISHING);
+            } else if (processStep === 8) {
                 // Loop back to 0
                 layers.push({...currentLayer});
                 globalLayerIndex++;
@@ -621,26 +682,33 @@
             function loop() {
                 progress += ANIM_SPEED;
                 if (progress > 1) progress = 1;
+                
+                // --- Update Data Based on State ---
+                currentLayer.progress = progress; // Generic progress for all steps
 
                 if (type === STATE.DEPOSITING) currentLayer.dielectricOpacity = progress;
                 if (type === STATE.PR_APPLY) currentLayer.photoresistOpacity = progress;
                 
                 if (type === STATE.DEVELOPING) {
-                    // Step 3 (Exposure): PR opacity remains 1
-                    currentLayer.photoresistOpacity = 1;
+                    // Step 3 (Exposure): Only UV/Mask animation
+                    currentLayer.photoresistOpacity = 1; 
                 }
 
                 if (type === STATE.PR_REMOVE) { // Step 4 (Develop)
-                    currentLayer.photoresistOpacity = 1 - progress; // PR removed
+                    // Patterning is handled visually in drawPhotoresist via progress
                 }
                 
                 if (type === STATE.DIELECTRIC_ETCH) { // Step 5 (Dry Etch)
-                    currentLayer.photoresistOpacity = 0; // PR is gone
                     currentLayer.etchProgress = progress; // Etch progresses
+                }
+
+                if (type === STATE.PR_STRIP) { // Step 6 (PR Strip)
+                    // Strip is handled visually in drawPhotoresist via progress (1-progress)
                 }
                 
                 if (type === STATE.FILLING) currentLayer.fillProgress = progress;
                 if (type === STATE.POLISHING) currentLayer.polishProgress = progress;
+                // --- End Update Data ---
 
                 draw();
 
@@ -650,15 +718,16 @@
                     document.getElementById('action-btn').disabled = false;
                     
                     // Final state adjustments for visual clarity
-                    if (type === STATE.DEVELOPING) {
-                        currentLayer.photoresistOpacity = 1; 
-                    }
                     if (type === STATE.PR_REMOVE) {
-                        currentLayer.photoresistOpacity = 0; // PR definitely gone
+                        currentLayer.progress = 1; // Patterning complete
                     }
                     if (type === STATE.DIELECTRIC_ETCH) {
-                        currentLayer.photoresistOpacity = 0; // PR definitely gone
                         currentLayer.etchProgress = 1; // Hole definitely formed
+                    }
+                    if (type === STATE.PR_STRIP) {
+                        currentLayer.progress = 1; // Strip complete
+                        // **修正：明確設定光阻劑透明度為 0，確保 PR 繪圖邏輯停止運行**
+                        currentLayer.photoresistOpacity = 0; 
                     }
                     if (type === STATE.POLISHING) {
                         currentLayer.polishProgress = 1; // Final cleanup
